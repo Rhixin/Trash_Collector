@@ -1,6 +1,5 @@
 import pygame
-import random
-import math
+
 
 class Entity(pygame.Rect):
     def __init__(self, speed, x, y, width, height, color):

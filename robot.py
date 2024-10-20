@@ -1,6 +1,9 @@
 from entity import Entity
 import pygame
 import math
+from trash import Trash
+from obstacle import Obstacle
+from trashbin import Bin
 
 class Robot(Entity):
     
@@ -9,6 +12,15 @@ class Robot(Entity):
         self.collected_trash = 0
         self.move_timer = 0
         self.idle_state_timer = 0
+        self.transition_table = [
+            [ 1,  1,  1,  1,  1,  1],
+            [ 2,  1, -1, -1, -1, -1],
+            [-1, -1,  3,  2, -1,  2],
+            [ 4,  3, -1, -1, -1, -1],
+            [-1, -1,  5,  1, -1,  4],
+            [-1, -1,  5,  1,  6,  5],
+            [ 1,  1,  1,  1,  1,  1]
+        ]
         
         
     def render(self, screen):
@@ -23,47 +35,70 @@ class Robot(Entity):
         screen.blit(text_surface, (text_x, text_y))
         
     def update_state(self, trash_list,obstacle_list,trashbin, dt):
-        nearest_trash = self.find_nearest_entity(trash_list)
-        nearest_obstacle = self.find_nearest_entity(obstacle_list)
+        machine_input = None
         
-        trashbin_collided = self.detect_collison(trashbin)
-        obstacle_collided = self.detect_collison(nearest_obstacle)
+        nearby_trash = self.find_nearest_entity(trash_list)
+        nearby_obstacle = self.find_nearest_entity(obstacle_list)
         
-        if obstacle_collided:
-            self.collected_trash = 0
-            self.current_state = 1
+        if self.current_state == 0:
+            #always go to state 1
+            machine_input = 0
+        elif self.current_state == 1:
+            if nearby_trash:
+                machine_input = 0
+            else:
+                machine_input = 1
+        elif self.current_state == 2:
+            if nearby_trash and self.detect_collison(nearby_trash):
+                machine_input = 2
+            elif self.detect_collison(nearby_obstacle):
+                machine_input = 3
+            else:
+                machine_input = 5
+        elif self.current_state == 3:
+            if nearby_trash:
+                machine_input = 0
+            else:
+                machine_input = 1
+        elif self.current_state == 4:
+            if nearby_trash and self.detect_collison(nearby_trash):
+                machine_input = 2
+            elif self.detect_collison(nearby_obstacle):
+                machine_input = 3
+            else:
+                machine_input = 5
+        elif self.current_state == 5:
+            if nearby_trash and self.detect_collison(nearby_trash):
+                machine_input = 2
+            elif self.detect_collison(nearby_obstacle):
+                machine_input = 3
+            elif self.detect_collison(trashbin):
+                machine_input = 4
+            else:
+                machine_input = 5
+        elif self.current_state == 6:
+            #go back to start
+            machine_input = 0
             
-        if nearest_trash:
-            trash_collided = self.detect_collison(nearest_trash)
             
+        self.current_state = self.transition_table[self.current_state][machine_input]
         
-            if trash_collided:
-                trash_collided.isCollected = True
-                self.collected_trash += 1
-        
-            if self.collected_trash < 2:
-                self.current_state = 2
-            elif self.collected_trash == 2:
-                self.current_state = 3
-                
-                
-        if trashbin_collided and self.collected_trash >= 2:
-            print("trash throw")
-            trashbin.trash_count += self.collected_trash
-            self.collected_trash = 0
-            self.x = 140
-            self.y = 100
-            self.current_state = 1
-            
+        print(f"State: {self.current_state}")
         
         if self.current_state == 0:
             self.spawn_state()
         elif self.current_state == 1:
-            self.idle_state()
+            self.holding_zero_trash()
         elif self.current_state == 2:
-            self.finding_trash(trash_list, dt)
+            self.finding_first_trash(nearby_trash, dt)
         elif self.current_state == 3:
-            self.throw_trash(trashbin, dt)
+            self.holding_one_trash()
+        elif self.current_state == 4:
+            self.finding_second_trash(nearby_trash, dt)
+        elif self.current_state == 5:
+            self.holding_two_trash(trashbin, dt)
+        else:
+            self.all_trashes_thrown_to_bin()
         
     #STATES
     
@@ -71,44 +106,28 @@ class Robot(Entity):
     def spawn_state(self):
         print("Robot just spawned")
         
-    #1
-    def idle_state(self):
-        print("Robot is in idle state")
-        
-    #2
-    def finding_trash(self, trash_list, dt):
-        print("Finding Trash")
-        nearest_trash = self.find_nearest_entity(trash_list)
-        
-        if nearest_trash is not None:
-            self.move_towards_entity(nearest_trash, dt)
+    #1     
+    def holding_zero_trash(self):
+        print("Robot is holding zero")
             
     #2
-    def finding_first_trash(self, trash_list, dt):
-        print("Finding trash 1")
+    def finding_first_trash(self, trash, dt):
+        self.move_towards_entity(trash, dt)
     
     #3
-    def picked_first_trash(self, trash_list, dt):
+    def holding_one_trash(self):
         print("Picked trash 1")
         
     #4
-    def finding_second_trash(self, trash_list, dt):
-        print("Finding trash 1")
+    def finding_second_trash(self, trash, dt):
+        self.move_towards_entity(trash, dt)
     
     #5
-    def picked_second_trash(self, trash_list, dt):
-        print("Picked trash 1")
-        
-    #6
-    def throw_trash(self, bin,dt):
-        self.move_towards_entity(bin,dt)
-        
-    #7
-    def collision_with_obstacle(self):
-        print("Collision with obstacle")
+    def holding_two_trash(self, trashbin, dt):
+        self.move_towards_entity(trashbin, dt)
     
-    #8
-    def succesfull_throwing_trashes(self):
+    #6
+    def all_trashes_thrown_to_bin(self):
         print("Succesfull throwing")
     
     
@@ -152,5 +171,16 @@ class Robot(Entity):
         distance = math.sqrt((self.centerx - entity.centerx) ** 2 + (self.centery - entity.centery) ** 2)
             
         if distance <= (entity.width):
+            if isinstance(entity, Trash):
+                entity.isCollected = True
+                self.collected_trash += 1
+            elif isinstance(entity, Bin):
+                entity.trash_count += self.collected_trash
+                self.collected_trash = 0
+                self.x += 80
+            elif isinstance(entity, Obstacle):
+                self.collected_trash = 0
+                
             return entity
+        
         return None
